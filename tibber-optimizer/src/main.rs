@@ -66,9 +66,9 @@ async fn main() -> Result<()> {
         let battery_state = mqtt_client.get_battery_state().await;
 
         // Check if we have valid battery state
-        if battery_state.last_update.is_none() {
+        if battery_state.last_soc_update.is_none() {
             warn!("No battery SoC data received yet, using default self-consumption mode");
-            if let Err(e) = mqtt_client.publish_grid_setpoint(0.0).await {
+            if let Err(e) = mqtt_client.publish_grid_setpoint(200.0).await {
                 error!("Failed to publish grid setpoint: {}", e);
             }
             continue;
@@ -107,6 +107,7 @@ async fn main() -> Result<()> {
             current_price: current_price.total,
             current_mode: result.mode.to_string(),
             grid_setpoint_w: result.grid_setpoint_w,
+            actual_setpoint_w: battery_state.current_setpoint_w,
             battery_soc: battery_state.soc,
             price_stats: price_cache.price_stats().map(|s| PriceStatsJson {
                 min: s.min,

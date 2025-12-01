@@ -11,8 +11,12 @@ use crate::config::MqttConfig;
 pub struct BatteryState {
     /// Current state of charge (0-100)
     pub soc: f64,
-    /// Last update timestamp
-    pub last_update: Option<chrono::DateTime<chrono::Utc>>,
+    /// Current grid setpoint as read from the system
+    pub current_setpoint_w: Option<f64>,
+    /// Last SoC update timestamp
+    pub last_soc_update: Option<chrono::DateTime<chrono::Utc>>,
+    /// Last setpoint update timestamp
+    pub last_setpoint_update: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 pub struct MqttClient {
@@ -39,34 +43,30 @@ impl MqttClient {
         let battery_state = Arc::new(RwLock::new(BatteryState::default()));
         let battery_state_clone = battery_state.clone();
         let soc_topic = config.soc_topic.clone();
+        let setpoint_read_topic = config.grid_setpoint_read_topic.clone();
 
         // Spawn event loop handler
         tokio::spawn(async move {
             loop {
                 match eventloop.poll().await {
                     Ok(Event::Incoming(Packet::Publish(publish))) => {
-                        if publish.topic == soc_topic {
-                            if let Ok(payload_str) = std::str::from_utf8(&publish.payload) {
-                                match payload_str.trim().parse::<f64>() {
-                                    Ok(soc) => {
-                                        let mut state = battery_state_clone.write().await;
-                                        state.soc = soc;
-                                        state.last_update = Some(chrono::Utc::now());
-                                        debug!("Updated battery SoC: {:.1}%", soc);
-                                    }
-                                    Err(e) => {
-                                        // Try parsing as JSON (some systems send {"value": 50.0})
-                                        if let Ok(json) = serde_json::from_str::<serde_json::Value>(payload_str) {
-                                            if let Some(soc) = json.get("value").and_then(|v| v.as_f64()) {
-                                                let mut state = battery_state_clone.write().await;
-                                                state.soc = soc;
-                                                state.last_update = Some(chrono::Utc::now());
-                                                debug!("Updated battery SoC from JSON: {:.1}%", soc);
-                                            }
-                                        } else {
-                                            warn!("Failed to parse SoC value '{}': {}", payload_str, e);
-                                        }
-                                    }
+                        if let Ok(payload_str) = std::str::from_utf8(&publish.payload) {
+                            // Handle SoC updates (Victron format)
+                            if publish.topic == soc_topic {
+                                if let Some(value) = parse_victron_soc(payload_str) {
+                                    let mut state = battery_state_clone.write().await;
+                                    state.soc = value;
+                                    state.last_soc_update = Some(chrono::Utc::now());
+                                    debug!("Updated battery SoC: {:.1}%", value);
+                                }
+                            }
+                            // Handle setpoint updates
+                            else if publish.topic == setpoint_read_topic {
+                                if let Some(value) = parse_mqtt_value(payload_str) {
+                                    let mut state = battery_state_clone.write().await;
+                                    state.current_setpoint_w = Some(value);
+                                    state.last_setpoint_update = Some(chrono::Utc::now());
+                                    debug!("Updated grid setpoint reading: {:.0}W", value);
                                 }
                             }
                         }
@@ -95,6 +95,12 @@ impl MqttClient {
             .await?;
         info!("Subscribed to SoC topic: {}", config.soc_topic);
 
+        // Subscribe to setpoint read topic
+        client
+            .subscribe(&config.grid_setpoint_read_topic, QoS::AtLeastOnce)
+            .await?;
+        info!("Subscribed to setpoint read topic: {}", config.grid_setpoint_read_topic);
+
         Ok(Self {
             client,
             config,
@@ -113,14 +119,14 @@ impl MqttClient {
 
         self.client
             .publish(
-                &self.config.grid_setpoint_topic,
+                &self.config.grid_setpoint_write_topic,
                 QoS::AtLeastOnce,
                 false,
                 payload.to_string(),
             )
             .await?;
 
-        debug!("Published grid setpoint: {} W", setpoint_w);
+        debug!("Published grid setpoint: {} W to {}", setpoint_w, self.config.grid_setpoint_write_topic);
         Ok(())
     }
 
@@ -165,11 +171,56 @@ impl MqttClient {
     }
 }
 
+/// Parse a simple value from MQTT payload - handles raw numbers and JSON {"value": x}
+fn parse_mqtt_value(payload: &str) -> Option<f64> {
+    // Try parsing as plain number first
+    if let Ok(value) = payload.trim().parse::<f64>() {
+        return Some(value);
+    }
+
+    // Try parsing as JSON with "value" field
+    if let Ok(json) = serde_json::from_str::<serde_json::Value>(payload) {
+        if let Some(value) = json.get("value").and_then(|v| v.as_f64()) {
+            return Some(value);
+        }
+    }
+
+    warn!("Failed to parse MQTT value: '{}'", payload);
+    None
+}
+
+/// Parse SoC from Victron battery JSON: {"value": [{"soc": 75.5, ...}]}
+fn parse_victron_soc(payload: &str) -> Option<f64> {
+    // Try the Victron format first: {"value": [{"soc": x}]}
+    if let Ok(json) = serde_json::from_str::<serde_json::Value>(payload) {
+        if let Some(value_array) = json.get("value").and_then(|v| v.as_array()) {
+            if let Some(first) = value_array.first() {
+                if let Some(soc) = first.get("soc").and_then(|v| v.as_f64()) {
+                    return Some(soc);
+                }
+            }
+        }
+        // Fall back to simple {"value": x} format
+        if let Some(value) = json.get("value").and_then(|v| v.as_f64()) {
+            return Some(value);
+        }
+    }
+
+    // Try plain number
+    if let Ok(value) = payload.trim().parse::<f64>() {
+        return Some(value);
+    }
+
+    warn!("Failed to parse SoC value: '{}'", payload);
+    None
+}
+
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct OptimizerStatus {
     pub current_price: f64,
     pub current_mode: String,
     pub grid_setpoint_w: f64,
+    pub actual_setpoint_w: Option<f64>,
     pub battery_soc: f64,
     pub price_stats: Option<PriceStatsJson>,
     pub next_cheap_slot: Option<String>,

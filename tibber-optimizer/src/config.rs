@@ -39,8 +39,10 @@ pub struct MqttConfig {
     pub client_id: String,
     /// Topic to subscribe to for battery State of Charge (0-100)
     pub soc_topic: String,
-    /// Topic to publish the grid setpoint to (for Victron VenusOS)
-    pub grid_setpoint_topic: String,
+    /// Topic to subscribe to for current grid setpoint (N/...for Victron)
+    pub grid_setpoint_read_topic: String,
+    /// Topic to publish the grid setpoint to (W/... for Victron)
+    pub grid_setpoint_write_topic: String,
     /// Topic to publish current price info
     pub price_topic: String,
 }

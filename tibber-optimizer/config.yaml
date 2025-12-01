@@ -1,6 +1,6 @@
 name: "Tibber Battery Optimizer"
 description: "Optimizes battery charge/discharge based on Tibber dynamic energy prices"
-version: "0.1.0"
+version: "0.2.0"
 slug: "tibber_optimizer"
 arch:
   - amd64

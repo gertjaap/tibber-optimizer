@@ -1,0 +1,78 @@
+# Tibber Battery Optimizer Configuration
+# Copy this file to config.yaml and fill in your values
+
+tibber:
+  # Your Tibber API token (get it from https://developer.tibber.com/)
+  api_token: "YOUR_TIBBER_API_TOKEN"
+  # How often to refresh prices (default: 900 seconds = 15 minutes)
+  refresh_interval_secs: 900
+
+mqtt:
+  # MQTT broker hostname
+  host: "192.168.1.100"
+  # MQTT broker port (default: 1883)
+  port: 1883
+  # Optional authentication
+  username: "mqtt_user"
+  password: "mqtt_password"
+  # Client ID for MQTT connection
+  client_id: "tibber-optimizer"
+  # Topic where battery SoC is published (subscribe)
+  # For Victron VenusOS, this might be something like:
+  # N/<portal_id>/system/0/Batteries/Soc
+  soc_topic: "N/YOUR_PORTAL_ID/system/0/Batteries/Soc"
+  # Topic to publish grid setpoint to (for Victron VenusOS)
+  # This controls the ESS grid setpoint
+  # For Victron, use: W/<portal_id>/settings/0/Settings/CGwacs/AcPowerSetPoint
+  grid_setpoint_topic: "W/YOUR_PORTAL_ID/settings/0/Settings/CGwacs/AcPowerSetPoint"
+  # Topic to publish current price info
+  price_topic: "tibber/price/current"
+
+battery:
+  # Battery capacity in kWh
+  capacity_kwh: 32.0
+  # Round-trip efficiency (0.0 - 1.0)
+  # 0.90 = 90% efficiency (10% loss over full charge/discharge cycle)
+  round_trip_efficiency: 0.90
+  # Minimum SoC to maintain (don't discharge below this)
+  min_soc_percent: 10.0
+  # Maximum SoC target
+  max_soc_percent: 100.0
+  # Maximum grid setpoint for charging in watts
+  # This is the grid setpoint, not battery power - set high enough to allow
+  # for house loads on top of battery charging (e.g., 15kW leaves 2kW for house
+  # on a 17kW connection while battery charges at its max rate)
+  max_charge_power_w: 15000.0
+  # Maximum grid setpoint for discharging in watts (negative = feed to grid)
+  max_discharge_power_w: 15000.0
+
+optimizer:
+  # Minimum price spread (EUR/kWh) to consider grid discharge worthwhile
+  # This accounts for round-trip losses - only discharge if the price
+  # difference is at least this much
+  min_discharge_spread: 0.05
+
+  # Price tiers (percentiles of future prices):
+  #
+  # CHEAPEST (bottom 10%): Full power charging
+  cheapest_percentile: 10.0
+  #
+  # CHEAP (bottom 25%): Reduced power charging (if not enough cheapest slots)
+  charge_percentile: 25.0
+  #
+  # EXPENSIVE (top 25%): Prevent grid pull, prefer battery
+  expensive_percentile: 25.0
+  #
+  # PREMIUM (top 10%): Discharge to grid (sell back)
+  discharge_percentile: 90.0
+
+  # Estimated base house consumption in watts (used for planning)
+  base_consumption_w: 500.0
+
+  # Setpoint offset in watts for self-consumption modes
+  # This compensates for ESS response lag:
+  # - During LOW prices: +offset prevents accidental feed-in
+  # - During HIGH prices: -offset prevents accidental grid pull
+  # - During MODERATE prices: +offset preserves battery for expensive periods
+  # Use a larger margin (200W+) for better protection
+  setpoint_offset_w: 200.0

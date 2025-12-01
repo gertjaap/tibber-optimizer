@@ -1,0 +1,67 @@
+name: "Tibber Battery Optimizer"
+description: "Optimizes battery charge/discharge based on Tibber dynamic energy prices"
+version: "0.1.0"
+slug: "tibber_optimizer"
+arch:
+  - amd64
+  - aarch64
+  - armv7
+init: false
+startup: application
+boot: auto
+options:
+  tibber:
+    api_token: ""
+    refresh_interval_secs: 900
+  mqtt:
+    host: "core-mosquitto"
+    port: 1883
+    username: ""
+    password: ""
+    client_id: "tibber-optimizer"
+    soc_topic: "battery/soc"
+    grid_setpoint_topic: "battery/grid_setpoint"
+    price_topic: "tibber/price/current"
+  battery:
+    capacity_kwh: 32.0
+    round_trip_efficiency: 0.90
+    min_soc_percent: 10.0
+    max_soc_percent: 100.0
+    max_charge_power_w: 15000.0
+    max_discharge_power_w: 15000.0
+  optimizer:
+    min_discharge_spread: 0.05
+    cheapest_percentile: 10.0
+    charge_percentile: 25.0
+    expensive_percentile: 25.0
+    discharge_percentile: 90.0
+    base_consumption_w: 500.0
+    setpoint_offset_w: 200.0
+schema:
+  tibber:
+    api_token: str
+    refresh_interval_secs: int?
+  mqtt:
+    host: str
+    port: int?
+    username: str?
+    password: str?
+    client_id: str?
+    soc_topic: str
+    grid_setpoint_topic: str
+    price_topic: str
+  battery:
+    capacity_kwh: float
+    round_trip_efficiency: float
+    min_soc_percent: float?
+    max_soc_percent: float?
+    max_charge_power_w: float?
+    max_discharge_power_w: float?
+  optimizer:
+    min_discharge_spread: float?
+    cheapest_percentile: float?
+    charge_percentile: float?
+    expensive_percentile: float?
+    discharge_percentile: float?
+    base_consumption_w: float?
+    setpoint_offset_w: float?
